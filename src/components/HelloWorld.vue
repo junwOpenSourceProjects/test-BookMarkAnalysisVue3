@@ -1,3 +1,4 @@
+<!-- vue-file -->
 <script setup lang="ts">
 import { ref } from 'vue'
 import viteLogo from '../assets/vite.svg'

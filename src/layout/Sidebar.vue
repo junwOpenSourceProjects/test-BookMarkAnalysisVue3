@@ -1,4 +1,5 @@
 <template>
+  <!-- vue-file -->
   <div class="sidebar">
     <div class="logo-container">
       <el-icon class="logo-icon"><Platform /></el-icon>

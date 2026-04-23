@@ -1,4 +1,5 @@
 <template>
+  <!-- vue-file -->
   <div class="app-wrapper">
     <Sidebar class="sidebar-container" />
     <div class="main-container">

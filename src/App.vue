@@ -1,4 +1,5 @@
 <template>
+  <!-- vue-file -->
   <el-config-provider>
     <router-view />
   </el-config-provider>
