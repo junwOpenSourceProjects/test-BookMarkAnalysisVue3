@@ -21,8 +21,11 @@
     "@types/node": "^25.5.0",
     "@vitejs/plugin-vue": "^6.0.5",
     "@vue/tsconfig": "^0.9.1",
+    "eslint": "^10.2.1",
+    "eslint-plugin-vue": "^10.9.0",
     "typescript": "~6.0.2",
     "vite": "^8.0.10",
+    "vue-eslint-parser": "^10.4.0",
     "vue-tsc": "^3.2.6"
   }
 }
