@@ -27,9 +27,9 @@
   --shadow-brand-offset: rgba(44, 30, 116, 0.11) 6.5px 2px 17.5px;
   --shadow-elevated: rgba(36, 36, 36, 0.08) 0px 12px 16px -4px;
 
-  --font-ui: 'DM Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --font-display: 'Outfit', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --font-mid: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-ui: '等线', 'DengXian', 'Microsoft YaHei', sans-serif;
+  --font-display: '等线', 'DengXian', 'Microsoft YaHei', sans-serif;
+  --font-mid: '等线', 'DengXian', 'Microsoft YaHei', sans-serif;
 
   --space-unit: 8px;
 }
