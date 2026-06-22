@@ -3,8 +3,8 @@ node_modules
 .DS_Store
 
 # Nuxt build & generate
-.dist
-.dist-ssr
+dist
+dist-ssr
 .output
 .nuxt
 .nitro
@@ -29,6 +29,8 @@ pnpm-debug.log*
 
 # Environment
 .env
+.env.local
+.env.*.local
 .env.*
 !.env.example
 
