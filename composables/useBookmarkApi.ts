@@ -72,11 +72,11 @@ export const bookmarkApi = {
   put: <T>(url: string, data?: any) => useApi().put<T>(url, data),
   del: <T>(url: string, data?: any) => useApi().del<T>(url, data),
 
-  // 导入书签文件
+  // 导入书签文件（自动识别 HTML / plist 格式）
   importBookmarks: (file: File) => {
     const formData = new FormData()
     formData.append('file', file)
-    return useApi().post('/BookMarks/upload', formData)
+    return useApi().post('/BookMarks/upload/auto', formData)
   },
 
   // 获取仪表盘统计数据

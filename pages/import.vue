@@ -10,7 +10,7 @@
       <input
         ref="fileInput"
         type="file"
-        accept=".html,.json"
+        accept=".html,.htm,.plist"
         class="hidden-file-input"
         @change="handleFileSelect"
       />
@@ -53,7 +53,7 @@
           </UButton>
         </div>
         <p class="option-hint text-muted">
-          请选择浏览器导出的 HTML/JSON 书签文件。
+          请选择浏览器导出的 HTML（Chrome / Firefox / Edge）或 plist（Safari）书签文件。
         </p>
       </div>
     </div>
