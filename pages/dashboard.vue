@@ -7,77 +7,123 @@
 
     <!-- 统计卡片 -->
     <div class="stats-grid">
-      <div class="card stat-card">
+      <div
+        v-for="stat in statCards"
+        :key="stat.key"
+        class="card card-featured stat-card"
+      >
         <div class="stat-icon">
-          <UIcon name="i-ph-bookmark" />
+          <UIcon :name="stat.icon" />
         </div>
         <div class="stat-content">
-          <span class="stat-value font-display">{{ stats.total || 0 }}</span>
-          <span class="stat-label">总书签数</span>
-        </div>
-      </div>
-      
-      <div class="card stat-card">
-        <div class="stat-icon">
-          <UIcon name="i-ph-folder" />
-        </div>
-        <div class="stat-content">
-          <span class="stat-value font-display">{{ stats.folders || 0 }}</span>
-          <span class="stat-label">文件夹</span>
-        </div>
-      </div>
-      
-      <div class="card stat-card">
-        <div class="stat-icon">
-          <UIcon name="i-ph-tag" />
-        </div>
-        <div class="stat-content">
-          <span class="stat-value font-display">{{ stats.tags || 0 }}</span>
-          <span class="stat-label">标签数</span>
-        </div>
-      </div>
-      
-      <div class="card stat-card">
-        <div class="stat-icon">
-          <UIcon name="i-ph-clock" />
-        </div>
-        <div class="stat-content">
-          <span class="stat-value font-display">{{ stats.recent || 0 }}</span>
-          <span class="stat-label">最近添加</span>
+          <span class="stat-value font-display">{{ stat.value }}</span>
+          <span class="stat-label">{{ stat.label }}</span>
         </div>
       </div>
     </div>
 
-    <!-- 图表 -->
-    <div class="card chart-card">
-      <h3 class="font-mid">分类分布</h3>
-      <div class="chart-placeholder">
-        <UBadge variant="subtle" color="primary">图表区域</UBadge>
+    <!-- 域名分布图表 -->
+    <div class="card card-featured chart-card">
+      <div class="chart-header">
+        <h3 class="font-mid">域名分布</h3>
+        <span v-if="loading" class="text-muted text-sm">加载中…</span>
+      </div>
+
+      <div v-if="loading" class="chart-placeholder">
+        <UIcon name="i-ph-spinner" class="animate-spin" />
+      </div>
+
+      <div v-else-if="domainList.length === 0" class="chart-placeholder text-muted">
+        暂无分布数据
+      </div>
+
+      <div v-else class="domain-bars">
+        <div
+          v-for="item in domainList"
+          :key="item.domain"
+          class="domain-bar-row"
+        >
+          <span class="domain-name">{{ item.domain }}</span>
+          <div class="domain-track">
+            <div
+              class="domain-fill"
+              :style="{ width: `${item.percent}%` }"
+            />
+          </div>
+          <span class="domain-count">{{ item.count }}</span>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
+// 使用默认布局
 definePageMeta({
   layout: 'default'
 })
 
-const stats = ref({
+interface StatsData {
+  total?: number
+  folders?: number
+  tags?: number
+  recent?: number
+}
+
+interface DomainItem {
+  domain: string
+  count: number
+}
+
+const stats = ref<StatsData>({
   total: 0,
   folders: 0,
   tags: 0,
   recent: 0
 })
 
+const loading = ref(false)
+const toast = useToast()
+const domainDistribution = ref<DomainItem[]>([])
+
+const statCards = computed(() => [
+  { key: 'total', label: '总书签数', value: stats.value.total || 0, icon: 'i-ph-bookmark' },
+  { key: 'folders', label: '文件夹', value: stats.value.folders || 0, icon: 'i-ph-folder' },
+  { key: 'tags', label: '标签数', value: stats.value.tags || 0, icon: 'i-ph-tag' },
+  { key: 'recent', label: '最近添加', value: stats.value.recent || 0, icon: 'i-ph-clock' }
+])
+
+const domainList = computed(() => {
+  const raw = domainDistribution.value || {}
+  const list = Object.entries(raw).map(([domain, count]) => ({
+    domain,
+    count: Number(count)
+  }))
+  const max = Math.max(...list.map((d) => d.count), 1)
+  return list.map((d) => ({
+    ...d,
+    percent: Math.round((d.count / max) * 100)
+  }))
+})
+
 onMounted(async () => {
   try {
     const res = await bookmarkApi.getStats()
     stats.value = res.data || {}
-  } catch (error) {
-    console.error('获取统计数据失败:', error)
+  } catch (error: any) {
+    toast.add({ title: error.message || '获取统计数据失败', color: 'error' })
+  }
+
+  loading.value = true
+  try {
+    const res = await bookmarkApi.getGroupStats()
+    domainDistribution.value = res.data?.domainDistribution || []
+  } catch (error: any) {
+    toast.add({ title: error.message || '获取分组统计失败', color: 'error' })
+  } finally {
+    loading.value = false
   }
 })
 </script>
@@ -145,10 +191,20 @@ onMounted(async () => {
   border-radius: 20px;
 }
 
-.chart-card h3 {
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.chart-header h3 {
   font-size: 18px;
   font-weight: 600;
-  margin-bottom: 24px;
+}
+
+.text-sm {
+  font-size: 14px;
 }
 
 .chart-placeholder {
@@ -156,5 +212,54 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 14px;
+}
+
+.domain-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.domain-bar-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 48px;
+  align-items: center;
+  gap: 16px;
+}
+
+.domain-name {
+  font-size: 14px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.domain-track {
+  height: 12px;
+  background-color: var(--color-bg-secondary);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.domain-fill {
+  height: 100%;
+  background-color: var(--color-brand);
+  border-radius: 9999px;
+  transition: width 0.4s ease;
+}
+
+.domain-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .domain-bar-row {
+    grid-template-columns: 100px 1fr 40px;
+  }
 }
 </style>

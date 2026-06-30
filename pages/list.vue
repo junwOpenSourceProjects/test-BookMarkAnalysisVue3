@@ -5,50 +5,61 @@
       <p class="text-muted">搜索和筛选所有书签数据</p>
     </div>
 
+    <!-- 搜索框 -->
     <div class="card search-card">
-      <UInput 
-        v-model="searchKeyword" 
+      <UInput
+        v-model="searchKeyword"
         placeholder="输入关键词搜索..."
         size="lg"
         class="search-input"
+        @keyup.enter="handleSearch"
       >
         <template #leading>
           <UIcon name="i-ph-magnifying-glass" />
         </template>
         <template #trailing>
-          <UButton v-if="searchKeyword" variant="ghost" size="sm" @click="searchKeyword = ''">
+          <UButton v-if="searchKeyword" variant="ghost" size="sm" @click="clearSearch">
             <UIcon name="i-ph-x" />
           </UButton>
         </template>
       </UInput>
     </div>
 
+    <!-- 搜索结果 -->
     <div class="results-card card mt-6">
       <div class="results-header flex justify-between items-center mb-4">
-        <span class="text-secondary">找到 {{ total }} 条结果</span>
-        <div class="flex gap-2">
-          <USelect 
-            v-model="queryParams.sort" 
-            :items="sortOptions" 
-            placeholder="排序方式"
-            size="sm"
-          />
-        </div>
+        <span class="text-secondary">
+          {{ loading ? '搜索中…' : `找到 ${total} 条结果` }}
+        </span>
+        <USelect
+          v-model="queryParams.sort"
+          :items="sortOptions"
+          placeholder="排序方式"
+          size="sm"
+        />
       </div>
 
-      <div class="results-list">
-        <div 
-          class="result-item" 
-          v-for="item in results" 
+      <div v-if="loading" class="results-empty">
+        <UIcon name="i-ph-spinner" class="animate-spin" />
+      </div>
+
+      <div v-else-if="results.length === 0" class="results-empty text-muted">
+        暂无数据，请输入关键词搜索
+      </div>
+
+      <div v-else class="results-list">
+        <div
+          v-for="item in results"
           :key="item.id"
+          class="result-item"
         >
           <div class="result-icon">
-            <img v-if="item.favicon" :src="item.favicon" class="favicon" />
+            <img v-if="item.favicon" :src="item.favicon" class="favicon" alt="" />
             <UIcon v-else name="i-ph-link" />
           </div>
           <div class="result-content">
             <a :href="item.url" target="_blank" class="result-title">
-              {{ item.title }}
+              {{ item.title || item.url }}
             </a>
             <p class="result-url text-muted">{{ item.url }}</p>
             <p v-if="item.description" class="result-desc text-secondary">
@@ -66,10 +77,11 @@
         </div>
       </div>
 
-      <div class="pagination-wrapper mt-6">
-        <UPagination 
-          v-model:page="queryParams.page" 
-          v-model:page-size="queryParams.limit"
+      <!-- 分页 -->
+      <div v-if="total > 0" class="pagination-wrapper mt-6">
+        <UPagination
+          v-model:page="queryParams.page"
+          v-model:items-per-page="queryParams.limit"
           :total="total"
         />
       </div>
@@ -78,15 +90,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, onMounted } from 'vue'
 
+// 使用默认布局
 definePageMeta({
   layout: 'default'
 })
 
+interface BookmarkItem {
+  id: number
+  title?: string
+  url: string
+  favicon?: string
+  description?: string
+}
+
 const searchKeyword = ref('')
-const results = ref<any[]>([])
+const results = ref<BookmarkItem[]>([])
 const total = ref(0)
+const loading = ref(false)
+const toast = useToast()
 
 const queryParams = reactive({
   page: 1,
@@ -100,29 +123,59 @@ const sortOptions = [
   { label: '名称', value: 'name' }
 ]
 
+// 执行搜索：关键词为空时回退到列表接口
 const handleSearch = async () => {
-  if (!searchKeyword.value.trim()) {
-    results.value = []
-    total.value = 0
+  const keyword = searchKeyword.value.trim()
+
+  // 关键词长度不足且非空时不发起请求
+  if (keyword && keyword.length <= 2) {
     return
   }
-  
+
+  loading.value = true
   try {
-    const res = await bookmarkApi.search(searchKeyword.value)
-    results.value = res.data.records || []
-    total.value = res.data.total || 0
-  } catch (error) {
-    console.error('搜索失败:', error)
+    const res = keyword
+      ? await bookmarkApi.search(keyword, queryParams.page, queryParams.limit)
+      : await bookmarkApi.getListData({
+          page: queryParams.page,
+          limit: queryParams.limit
+        })
+    const records = (res.data?.records || []) as any[]
+    results.value = records.map((b) => ({
+      id: Number(b.id),
+      title: b.title,
+      url: b.href || '',
+      favicon: b.favicon,
+      description: b.description
+    }))
+    total.value = res.data?.total || 0
+  } catch (error: any) {
+    toast.add({ title: error.message || '搜索失败', color: 'error' })
+  } finally {
+    loading.value = false
   }
 }
 
+// 清空搜索
+const clearSearch = () => {
+  searchKeyword.value = ''
+  queryParams.page = 1
+  handleSearch()
+}
+
+// 输入关键词时自动搜索（长度大于 2）
 watch(searchKeyword, (val) => {
-  if (val.length > 2) {
+  queryParams.page = 1
+  if (val.length > 2 || val.length === 0) {
     handleSearch()
   }
 })
 
-queryParams.page
+// 分页或排序变化时重新搜索
+watch([() => queryParams.page, () => queryParams.limit, () => queryParams.sort], handleSearch)
+
+// 首次加载默认列表
+onMounted(handleSearch)
 </script>
 
 <style scoped>
@@ -159,6 +212,14 @@ queryParams.page
 
 .mb-4 {
   margin-bottom: 16px;
+}
+
+.results-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  font-size: 14px;
 }
 
 .results-list {
@@ -202,7 +263,7 @@ queryParams.page
 .result-title {
   font-size: 16px;
   font-weight: 500;
-  color: var(--color-brand);
+  color: var(--color-text);
   text-decoration: none;
 }
 
