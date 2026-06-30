@@ -6,7 +6,7 @@
     </div>
 
     <div class="tools-grid">
-      <div class="card tool-card" v-for="tool in tools" :key="tool.id">
+      <div v-for="tool in tools" :key="tool.id" class="card tool-card">
         <div class="tool-icon">
           <UIcon :name="tool.icon" />
         </div>
@@ -14,7 +14,13 @@
           <h3 class="font-mid">{{ tool.name }}</h3>
           <p class="text-muted">{{ tool.description }}</p>
         </div>
-        <UButton variant="soft" size="sm" @click="handleUseTool(tool.id)">
+        <UButton
+          variant="soft"
+          size="sm"
+          :loading="loadingId === tool.id"
+          :disabled="loadingId === tool.id"
+          @click="handleUseTool(tool.id)"
+        >
           使用
         </UButton>
       </div>
@@ -23,12 +29,18 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
+
+// 使用默认布局
 definePageMeta({
   layout: 'default'
 })
 
+const loadingId = ref<number | null>(null)
+const toast = useToast()
+
 const tools = ref([
-  { id: 1, name: '批量标签管理', description: '批量添加或移除书签标签', icon: 'i-ph-tags' },
+  { id: 1, name: '批量标签管理', description: '批量添加或移除书签标签', icon: 'i-ph-tag' },
   { id: 2, name: '失效链接检测', description: '检测书签中的失效链接', icon: 'i-ph-link-break' },
   { id: 3, name: '数据导出', description: '导出书签数据为多种格式', icon: 'i-ph-export' },
   { id: 4, name: '重复检测', description: '查找重复的书签链接', icon: 'i-ph-copy' },
@@ -36,8 +48,41 @@ const tools = ref([
   { id: 6, name: '数据清理', description: '清理无效书签数据', icon: 'i-ph-broom' }
 ])
 
-const handleUseTool = (id: number) => {
-  useToast().add({ title: `启动工具 ${id}`, color: 'info' })
+// 工具调用：已对接后端接口的优先调用，其余给出提示
+const handleUseTool = async (id: number) => {
+  loadingId.value = id
+  try {
+    switch (id) {
+      case 2: // 失效链接检测
+        await bookmarkApi.post('/BookMarks/toolbox/scanDeadLinks/start', {})
+        toast.add({ title: '失效链接检测已启动', color: 'success' })
+        break
+
+      case 3: // 数据导出
+        window.open('/BookMarks/export?format=html', '_blank')
+        toast.add({ title: '数据导出已在新标签页打开', color: 'success' })
+        break
+
+      case 4: // 重复检测
+        await bookmarkApi.post('/BookMarks/toolbox/deduplicate', {})
+        toast.add({ title: '重复检测完成', color: 'success' })
+        break
+
+      case 6: // 数据清理
+        if (await useConfirm().confirm('确定要清理无效书签数据吗？此操作不可恢复。')) {
+          await bookmarkApi.post('/BookMarks/toolbox/reset', {})
+          toast.add({ title: '数据清理完成', color: 'success' })
+        }
+        break
+
+      default:
+        toast.add({ title: '该功能尚未实现', color: 'warning' })
+    }
+  } catch (error: any) {
+    toast.add({ title: error.message || '工具调用失败', color: 'error' })
+  } finally {
+    loadingId.value = null
+  }
 }
 </script>
 
