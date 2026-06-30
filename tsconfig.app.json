@@ -13,11 +13,7 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
 
-    /* Alias */
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    }
+    "baseUrl": "."
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"]
+  "include": ["composables/**/*.ts", "pages/**/*.vue", "layouts/**/*.vue", "app.vue", "assets/**/*.ts"]
 }
