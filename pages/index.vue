@@ -1,15 +1,9 @@
-<template>
-  <NuxtLayout>
-    <NuxtPage />
-  </NuxtLayout>
-</template>
-
 <script setup lang="ts">
-// Redirect to dashboard
+// 首页重定向到仪表盘
 definePageMeta({
   middleware: [
     () => {
-      navigateTo('/dashboard')
+      return navigateTo('/dashboard')
     }
   ]
 })
