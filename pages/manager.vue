@@ -5,70 +5,45 @@
       <p class="text-muted">管理您的书签资源</p>
     </div>
 
+    <!-- 工具栏：搜索、刷新、AI 分类 -->
     <div class="toolbar flex gap-3 mb-4">
-      <UInput 
-        v-model="searchKeyword" 
+      <UInput
+        v-model="searchKeyword"
         placeholder="搜索书签..."
         class="search-input"
+        @keyup.enter="handleRefresh"
       >
         <template #leading>
           <UIcon name="i-ph-magnifying-glass" />
         </template>
       </UInput>
-      <UButton color="primary" @click="handleRefresh">
+      <UButton color="primary" :loading="loading" @click="handleRefresh">
         <UIcon name="i-ph-arrows-clockwise" />
         刷新
       </UButton>
-      <UButton variant="soft" @click="handleAiCategorize">
+      <UButton variant="soft" :loading="aiLoading" @click="handleAiCategorize">
         <UIcon name="i-ph-robot" />
         AI 分类
       </UButton>
     </div>
 
+    <!-- 书签表格 -->
     <div class="card table-card">
-      <UTable 
-        :data="bookmarks" 
-        :columns="columns" 
+      <UTable
+        :data="bookmarks"
+        :columns="columns"
         :loading="loading"
+        empty="暂无书签数据"
         class="bookmark-table"
-      >
-        <template #icon="{ row }">
-          <img v-if="row.favicon" :src="row.favicon" class="favicon" />
-          <UIcon v-else name="i-ph-link" class="default-icon" />
-        </template>
-        
-        <template #title="{ row }">
-          <div class="title-cell">
-            <a :href="row.url" target="_blank" class="bookmark-link">
-              {{ row.title }}
-            </a>
-          </div>
-        </template>
+      />
 
-        <template #tags="{ row }">
-          <div class="tags-cell">
-            <UBadge v-for="tag in row.tags" :key="tag" variant="subtle" size="sm">
-              {{ tag }}
-            </UBadge>
-          </div>
-        </template>
-
-        <template #actions="{ row }">
-          <UButton variant="ghost" size="sm" @click="handleEdit(row)">
-            <UIcon name="i-ph-pencil" />
-          </UButton>
-          <UButton variant="ghost" size="sm" color="error" @click="handleDelete(row)">
-            <UIcon name="i-ph-trash" />
-          </UButton>
-        </template>
-      </UTable>
-
+      <!-- 分页 -->
       <div class="pagination-wrapper">
-        <UPagination 
-          v-model:page="queryParams.page" 
-          v-model:page-size="queryParams.limit"
+        <UPagination
+          v-model:page="queryParams.page"
+          v-model:items-per-page="queryParams.limit"
           :total="total"
-          :page-sizes="[10, 20, 50, 100]"
+          :items-per-page-options="[10, 20, 50, 100]"
         />
       </div>
     </div>
@@ -76,15 +51,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch, h } from 'vue'
+import type { ColumnDef } from '@tanstack/vue-table'
 
+// 使用默认布局
 definePageMeta({
   layout: 'default'
 })
 
+interface Bookmark {
+  id: number
+  title: string
+  url: string
+  favicon?: string
+  tags?: string[]
+  createdAt?: string
+  selected?: boolean
+}
+
 const loading = ref(false)
+const aiLoading = ref(false)
+const toast = useToast()
 const searchKeyword = ref('')
-const bookmarks = ref<any[]>([])
+const bookmarks = ref<Bookmark[]>([])
+const selectedIds = ref<Set<number>>(new Set())
 const total = ref(0)
 
 const queryParams = reactive({
@@ -92,54 +82,190 @@ const queryParams = reactive({
   limit: 10
 })
 
-const columns = [
-  { key: 'icon', label: '图标', width: 60 },
-  { key: 'title', label: '标题' },
-  { key: 'url', label: '地址', width: 300 },
-  { key: 'tags', label: '标签', width: 200 },
-  { key: 'createdAt', label: '创建时间', width: 180 },
-  { key: 'actions', label: '操作', width: 120 }
+// 切换选中状态，同时同步到行对象的 selected 属性
+const toggleSelect = (row: Bookmark) => {
+  if (selectedIds.value.has(row.id)) {
+    selectedIds.value.delete(row.id)
+    row.selected = false
+  } else {
+    selectedIds.value.add(row.id)
+    row.selected = true
+  }
+}
+
+// 表格列定义（TanStack ColumnDef）
+const columns: ColumnDef<Bookmark>[] = [
+  {
+    id: 'select',
+    header: () => h('span', '选择'),
+    cell: ({ row }) =>
+      h('input', {
+        type: 'checkbox',
+        checked: selectedIds.value.has(row.original.id),
+        onChange: () => toggleSelect(row.original)
+      }),
+    meta: { class: { td: 'w-16' } }
+  },
+  {
+    accessorKey: 'icon',
+    header: '图标',
+    cell: ({ row }) => {
+      const favicon = row.original.favicon
+      return favicon
+        ? h('img', { src: favicon, class: 'favicon', alt: '' })
+        : h(UIcon, { name: 'i-ph-link', class: 'default-icon' })
+    },
+    meta: { class: { td: 'w-16' } }
+  },
+  {
+    accessorKey: 'title',
+    header: '标题',
+    cell: ({ row }) =>
+      h(
+        'a',
+        {
+          href: row.original.url,
+          target: '_blank',
+          class: 'bookmark-link'
+        },
+        row.original.title || row.original.url
+      )
+  },
+  {
+    accessorKey: 'url',
+    header: '地址',
+    cell: ({ row }) =>
+      h(
+        'a',
+        {
+          href: row.original.url,
+          target: '_blank',
+          class: 'bookmark-url'
+        },
+        row.original.url
+      )
+  },
+  {
+    accessorKey: 'tags',
+    header: '标签',
+    cell: ({ row }) => {
+      const tags = row.original.tags || []
+      return h(
+        'div',
+        { class: 'tags-cell' },
+        tags.map((tag) =>
+          h(UBadge, { key: tag, variant: 'subtle', size: 'sm' }, () => tag)
+        )
+      )
+    }
+  },
+  {
+    accessorKey: 'createdAt',
+    header: '创建时间',
+    cell: ({ row }) => row.original.createdAt || '-'
+  },
+  {
+    id: 'actions',
+    header: '操作',
+    cell: ({ row }) =>
+      h('div', { class: 'actions-cell' }, [
+        h(
+          UButton,
+          {
+            variant: 'ghost',
+            size: 'sm',
+            onClick: () => handleEdit(row.original)
+          },
+          () => h(UIcon, { name: 'i-ph-pencil' })
+        ),
+        h(
+          UButton,
+          {
+            variant: 'ghost',
+            size: 'sm',
+            color: 'error',
+            onClick: () => handleDelete(row.original)
+          },
+          () => h(UIcon, { name: 'i-ph-trash' })
+        )
+      ]),
+    meta: { class: { td: 'w-28' } }
+  }
 ]
 
+// 将后端 BookMarks 实体字段映射为前端 Bookmark 结构
+const normalizeBookmarks = (records: any[]): Bookmark[] => {
+  return records.map((b) => ({
+    id: Number(b.id),
+    title: b.title,
+    url: b.href || '',
+    favicon: b.favicon,
+    tags: b.tags,
+    createdAt: b.addDate ? new Date(b.addDate * 1000).toLocaleString() : undefined,
+    selected: selectedIds.value.has(Number(b.id))
+  }))
+}
+
+// 拉取书签列表（有搜索关键词时调用 /search，否则调用 /list）
 const handleRefresh = async () => {
   loading.value = true
   try {
-    const res = await bookmarkApi.getListData(queryParams)
-    bookmarks.value = res.data.records || []
-    total.value = res.data.total || 0
-  } catch (error) {
-    console.error('获取数据失败:', error)
+    const keyword = searchKeyword.value.trim()
+    const res = keyword
+      ? await bookmarkApi.search(keyword, queryParams.page, queryParams.limit)
+      : await bookmarkApi.getListData({
+          page: queryParams.page,
+          limit: queryParams.limit
+        })
+    const records = (res.data?.records || []) as any[]
+    bookmarks.value = normalizeBookmarks(records)
+    total.value = res.data?.total || 0
+  } catch (error: any) {
+    toast.add({ title: error.message || '获取数据失败', color: 'error' })
   } finally {
     loading.value = false
   }
 }
 
+// AI 分类：对选中行调用接口
 const handleAiCategorize = async () => {
-  const selected = bookmarks.value.filter(b => b.selected)
-  if (selected.length === 0) {
-    useToast().add({ title: '请先选择要分类的书签', color: 'warning' })
+  const ids = Array.from(selectedIds.value)
+  if (ids.length === 0) {
+    toast.add({ title: '请先选择要分类的书签', color: 'warning' })
     return
   }
+  aiLoading.value = true
   try {
-    await bookmarkApi.aiCategorize(selected.map(b => b.id))
-    useToast().add({ title: 'AI 分类完成', color: 'success' })
+    await bookmarkApi.aiCategorize(ids)
+    toast.add({ title: 'AI 分类完成', color: 'success' })
+    selectedIds.value.clear()
     handleRefresh()
   } catch (error: any) {
-    useToast().add({ title: error.message || '分类失败', color: 'error' })
+    toast.add({ title: error.message || '分类失败', color: 'error' })
+  } finally {
+    aiLoading.value = false
   }
 }
 
-const handleEdit = (row: any) => {
-  console.log('edit', row)
+const handleEdit = (row: Bookmark) => {
+  toast.add({ title: `编辑功能开发中：${row.title}`, color: 'info' })
 }
 
-const handleDelete = async (row: any) => {
+// 删除书签：先确认，再调用删除接口并刷新
+const handleDelete = async (row: Bookmark) => {
+  const confirmed = await useConfirm().confirm('确定要删除该书签吗？')
+  if (!confirmed) return
   try {
-    await useConfirm().confirm('确定要删除该书签吗？')
-    useToast().add({ title: '删除成功', color: 'success' })
+    await bookmarkApi.deleteBookmarks([row.id])
+    toast.add({ title: '删除成功', color: 'success' })
     handleRefresh()
-  } catch {}
+  } catch (error: any) {
+    toast.add({ title: error.message || '删除失败', color: 'error' })
+  }
 }
+
+// 分页或搜索条件变化时重新加载
+watch([() => queryParams.page, () => queryParams.limit], handleRefresh)
 
 onMounted(() => {
   handleRefresh()
@@ -190,11 +316,22 @@ onMounted(() => {
 }
 
 .bookmark-link {
-  color: var(--color-brand);
+  color: var(--color-text);
   text-decoration: none;
+  font-weight: 500;
 }
 
 .bookmark-link:hover {
+  text-decoration: underline;
+}
+
+.bookmark-url {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.bookmark-url:hover {
   text-decoration: underline;
 }
 
@@ -202,6 +339,11 @@ onMounted(() => {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+}
+
+.actions-cell {
+  display: flex;
+  gap: 4px;
 }
 
 .pagination-wrapper {
