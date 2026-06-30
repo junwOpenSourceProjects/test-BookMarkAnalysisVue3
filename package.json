@@ -17,6 +17,8 @@
     "vue-router": "^5.1.0"
   },
   "devDependencies": {
+    "@iconify-json/ph": "^1.2.2",
+    "@tanstack/vue-table": "^8.21.3",
     "typescript": "^6.0.3"
   },
   "pnpm": {
