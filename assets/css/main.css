@@ -1,5 +1,8 @@
 /* MiniMax Design System - Global Styles */
 
+@import "tailwindcss";
+@import "@nuxt/ui";
+
 :root {
   --color-brand: #1456f0;
   --color-brand-light: #3b82f6;
