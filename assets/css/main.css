@@ -38,99 +38,94 @@
   --space-unit: 8px;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: var(--font-ui);
+    font-size: 16px;
+    line-height: 1.50;
+    color: var(--color-text);
+    background-color: var(--color-bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
-body {
-  font-family: var(--font-ui);
-  font-size: 16px;
-  line-height: 1.50;
-  color: var(--color-text);
-  background-color: var(--color-bg);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+@layer components {
+  .font-display { font-family: var(--font-display); }
+  .font-mid { font-family: var(--font-mid); }
+  .font-ui { font-family: var(--font-ui); }
+  .font-data { font-family: var(--font-data); }
 
-.font-display { font-family: var(--font-display); }
-.font-mid { font-family: var(--font-mid); }
-.font-ui { font-family: var(--font-ui); }
-.font-data { font-family: var(--font-data); }
+  .text-muted { color: var(--color-text-muted); }
+  .text-secondary { color: var(--color-text-secondary); }
 
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 24px;
-}
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
 
-.section { padding: 64px 0; }
+  .section { padding: 64px 0; }
 
-.flex { display: flex; }
-.flex-col { flex-direction: column; }
-.items-center { align-items: center; }
-.justify-between { justify-content: space-between; }
-.gap-2 { gap: 8px; }
-.gap-3 { gap: 12px; }
-.gap-4 { gap: 16px; }
-.gap-6 { gap: 24px; }
+  /* 卡片：默认使用柔和的黑色阴影，featured 使用品牌紫色光晕 */
+  .card {
+    background-color: var(--color-bg);
+    border-radius: 20px;
+    box-shadow: var(--shadow-sm);
+    padding: 24px;
+  }
 
-.text-muted { color: var(--color-text-muted); }
-.text-secondary { color: var(--color-text-secondary); }
+  .card-featured {
+    box-shadow: var(--shadow-brand);
+  }
 
-/* 卡片：默认使用柔和的黑色阴影，featured 使用品牌紫色光晕 */
-.card {
-  background-color: var(--color-bg);
-  border-radius: 20px;
-  box-shadow: var(--shadow-sm);
-  padding: 24px;
-}
+  .btn-primary {
+    background-color: #181e25;
+    color: #ffffff;
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-family: var(--font-ui);
+    font-size: 14px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
 
-.card-featured {
-  box-shadow: var(--shadow-brand);
-}
+  .btn-primary:hover { opacity: 0.9; }
 
-.btn-primary {
-  background-color: #181e25;
-  color: #ffffff;
-  padding: 11px 20px;
-  border-radius: 8px;
-  font-family: var(--font-ui);
-  font-size: 14px;
-  font-weight: 500;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
+  /* 导航胶囊 */
+  .nav-pill {
+    background-color: rgba(0, 0, 0, 0.05);
+    color: #18181b;
+    padding: 8px 16px;
+    border-radius: 9999px;
+    font-family: var(--font-ui);
+    font-size: 14px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
 
-.btn-primary:hover { opacity: 0.9; }
+  .nav-pill:hover { background-color: rgba(0, 0, 0, 0.08); }
+  .nav-pill.active { background-color: #181e25; color: #ffffff; }
 
-/* 导航胶囊 */
-.nav-pill {
-  background-color: rgba(0, 0, 0, 0.05);
-  color: #18181b;
-  padding: 8px 16px;
-  border-radius: 9999px;
-  font-family: var(--font-ui);
-  font-size: 14px;
-  font-weight: 500;
-  border: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.nav-pill:hover { background-color: rgba(0, 0, 0, 0.08); }
-.nav-pill.active { background-color: #181e25; color: #ffffff; }
-
-/* 响应式网格辅助 */
-.grid-responsive {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 24px;
+  /* 响应式网格辅助 */
+  .grid-responsive {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 24px;
+  }
 }
 
 @media (max-width: 640px) {

@@ -63,8 +63,6 @@ interface Bookmark {
   id: number
   title: string
   url: string
-  favicon?: string
-  tags?: string[]
   createdAt?: string
   selected?: boolean
 }
@@ -109,12 +107,8 @@ const columns: ColumnDef<Bookmark>[] = [
   {
     accessorKey: 'icon',
     header: '图标',
-    cell: ({ row }) => {
-      const favicon = row.original.favicon
-      return favicon
-        ? h('img', { src: favicon, class: 'favicon', alt: '' })
-        : h(UIcon, { name: 'i-ph-link', class: 'default-icon' })
-    },
+    cell: () =>
+      h(UIcon, { name: 'i-ph-link', class: 'default-icon' }),
     meta: { class: { td: 'w-16' } }
   },
   {
@@ -148,16 +142,8 @@ const columns: ColumnDef<Bookmark>[] = [
   {
     accessorKey: 'tags',
     header: '标签',
-    cell: ({ row }) => {
-      const tags = row.original.tags || []
-      return h(
-        'div',
-        { class: 'tags-cell' },
-        tags.map((tag) =>
-          h(UBadge, { key: tag, variant: 'subtle', size: 'sm' }, () => tag)
-        )
-      )
-    }
+    cell: () =>
+      h('span', { class: 'text-muted' }, '—')
   },
   {
     accessorKey: 'createdAt',
@@ -199,8 +185,6 @@ const normalizeBookmarks = (records: any[]): Bookmark[] => {
     id: Number(b.id),
     title: b.title,
     url: b.href || '',
-    favicon: b.favicon,
-    tags: b.tags,
     createdAt: b.addDate ? new Date(b.addDate * 1000).toLocaleString() : undefined,
     selected: selectedIds.value.has(Number(b.id))
   }))

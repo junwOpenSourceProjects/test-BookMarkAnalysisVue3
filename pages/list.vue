@@ -54,17 +54,13 @@
           class="result-item"
         >
           <div class="result-icon">
-            <img v-if="item.favicon" :src="item.favicon" class="favicon" alt="" />
-            <UIcon v-else name="i-ph-link" />
+            <UIcon name="i-ph-link" />
           </div>
           <div class="result-content">
             <a :href="item.url" target="_blank" class="result-title">
               {{ item.title || item.url }}
             </a>
             <p class="result-url text-muted">{{ item.url }}</p>
-            <p v-if="item.description" class="result-desc text-secondary">
-              {{ item.description }}
-            </p>
           </div>
           <div class="result-actions">
             <UButton variant="ghost" size="sm">
@@ -101,8 +97,6 @@ interface BookmarkItem {
   id: number
   title?: string
   url: string
-  favicon?: string
-  description?: string
 }
 
 const searchKeyword = ref('')
@@ -144,9 +138,7 @@ const handleSearch = async () => {
     results.value = records.map((b) => ({
       id: Number(b.id),
       title: b.title,
-      url: b.href || '',
-      favicon: b.favicon,
-      description: b.description
+      url: b.href || ''
     }))
     total.value = res.data?.total || 0
   } catch (error: any) {

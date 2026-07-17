@@ -72,11 +72,6 @@ interface StatsData {
   recent?: number
 }
 
-interface DomainItem {
-  domain: string
-  count: number
-}
-
 const stats = ref<StatsData>({
   total: 0,
   folders: 0,
@@ -86,7 +81,7 @@ const stats = ref<StatsData>({
 
 const loading = ref(false)
 const toast = useToast()
-const domainDistribution = ref<DomainItem[]>([])
+const domainDistribution = ref<Record<string, number>>({})
 
 const statCards = computed(() => [
   { key: 'total', label: '总书签数', value: stats.value.total || 0, icon: 'i-ph-bookmark' },
@@ -119,7 +114,7 @@ onMounted(async () => {
   loading.value = true
   try {
     const res = await bookmarkApi.getGroupStats()
-    domainDistribution.value = res.data?.domainDistribution || []
+    domainDistribution.value = res.data?.domainDistribution || {}
   } catch (error: any) {
     toast.add({ title: error.message || '获取分组统计失败', color: 'error' })
   } finally {

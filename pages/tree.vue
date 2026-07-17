@@ -36,10 +36,21 @@
         <template #item="{ item, expanded }">
           <div class="tree-node">
             <UIcon :name="expanded ? 'i-ph-folder-open' : 'i-ph-folder'" />
-            <span>{{ item.label }}</span>
+            <span class="tree-node-label">{{ item.label }}</span>
             <UBadge v-if="item.count" variant="subtle" size="sm">
               {{ item.count }}
             </UBadge>
+            <UButton
+              variant="ghost"
+              size="sm"
+              color="error"
+              class="tree-node-delete"
+              :loading="deletingId === item.id"
+              :disabled="deletingId === item.id"
+              @click.stop="handleDeleteNode(item)"
+            >
+              <UIcon name="i-ph-trash" />
+            </UButton>
           </div>
         </template>
       </UTree>
@@ -73,6 +84,7 @@ interface TreeItem {
 }
 
 const loading = ref(false)
+const deletingId = ref<string | null>(null)
 const toast = useToast()
 const expandedIds = ref<string[]>([])
 const treeData = ref<TreeItem[]>([])
@@ -154,15 +166,55 @@ const handleCollapseAll = () => {
 }
 
 const handleNodeClick = (node: TreeItem) => {
-  console.log('node click', node)
+  // 点击节点时，如果有 href 则在新标签页打开
+  // 文件夹节点由 UTree 自动处理展开/收起
+}
+
+// 删除节点
+const handleDeleteNode = async (node: TreeItem) => {
+  const confirmed = await useConfirm().confirm(
+    `确定要删除「${node.label}」${node.children ? '及其所有子节点' : ''}吗？此操作不可恢复。`
+  )
+  if (!confirmed) return
+
+  deletingId.value = node.id
+  try {
+    // 收集该节点及其所有子孙节点的 ID
+    const idsToDelete = collectAllIds([node])
+    await bookmarkApi.deleteBookmarks(idsToDelete.map(Number))
+    toast.add({ title: `已删除「${node.label}」`, color: 'success' })
+    // 刷新树数据
+    await loadTreeData()
+  } catch (error: any) {
+    toast.add({ title: error.message || '删除失败', color: 'error' })
+  } finally {
+    deletingId.value = null
+  }
+}
+
+// 收集节点及其所有子孙节点的 ID
+const collectAllIds = (nodes: TreeItem[]): number[] => {
+  const ids: number[] = []
+  for (const node of nodes) {
+    ids.push(Number(node.id))
+    if (node.children?.length) {
+      ids.push(...collectAllIds(node.children))
+    }
+  }
+  return ids
+}
+
+// 加载树数据
+const loadTreeData = async () => {
+  const res = await bookmarkApi.getTreeData()
+  const raw = (res.data || []) as BackendNode[]
+  treeData.value = buildTree(raw)
 }
 
 onMounted(async () => {
   loading.value = true
   try {
-    const res = await bookmarkApi.getTreeData()
-    const raw = (res.data || []) as BackendNode[]
-    treeData.value = buildTree(raw)
+    await loadTreeData()
     // 默认展开前两层
     expandedIds.value = collectIds(treeData.value).slice(0, 20)
   } catch (error: any) {
@@ -212,5 +264,18 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.tree-node-label {
+  flex: 1;
+}
+
+.tree-node-delete {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.tree-node:hover .tree-node-delete {
+  opacity: 1;
 }
 </style>
