@@ -55,13 +55,19 @@
             </div>
           </label>
         </div>
+        <div class="ai-toggle">
+          <label class="toggle-label">
+            <input v-model="useAI" type="checkbox" />
+            <span>AI 增强：对规则未匹配的书签调用 AI 补全标题并分类</span>
+          </label>
+        </div>
         <div class="classify-actions">
           <UButton
             color="primary"
             :loading="classifyLoading"
             @click="runClassify"
           >
-            预览分类结果
+            {{ useAI ? 'AI 智能分类' : '预览分类结果' }}
           </UButton>
         </div>
       </div>
@@ -71,12 +77,13 @@
         <div class="classify-stats mb-4">
           <span class="text-secondary">
             策略：<strong>{{ strategies.find(s => s.value === selectedStrategy)?.label }}</strong>
-            | 共 {{ classifyStats.total }} 条，
-            <span class="text-success">已匹配 {{ classifyStats.matched }} 条</span>
-            <span v-if="classifyStats.unmatched > 0">
-              ，<span class="text-warning">未匹配 {{ classifyStats.unmatched }} 条</span>
-            </span>
+            | 共 {{ classifyStats.total }} 条
           </span>
+          <div class="classify-stats-detail">
+            <span class="stat-badge stat-rule">规则匹配 {{ classifyStats.ruleMatched }} 条</span>
+            <span v-if="classifyStats.aiMatched > 0" class="stat-badge stat-ai">AI 补全 {{ classifyStats.aiMatched }} 条</span>
+            <span v-if="classifyStats.unmatched > 0" class="stat-badge stat-unmatched">未匹配 {{ classifyStats.unmatched }} 条</span>
+          </div>
         </div>
 
         <div class="classify-results">
@@ -84,16 +91,27 @@
             v-for="item in classifyResults"
             :key="item.bookmarkId"
             class="classify-item"
+            :class="{ 'low-confidence': item.confidence < 70 && item.source !== 'rule' }"
           >
             <div class="classify-item-url text-muted">{{ item.url }}</div>
             <div class="classify-item-title">
-              <span v-if="item.needsTitle" class="needs-title-badge">待补全</span>
-              {{ item.originalTitle || '(无标题)' }}
+              <span v-if="item.source === 'ai' && item.suggestedTitle" class="ai-title">
+                {{ item.suggestedTitle }}
+              </span>
+              <span v-else>
+                <span v-if="item.needsTitle" class="needs-title-badge">待补全</span>
+                {{ item.originalTitle || '(无标题)' }}
+              </span>
             </div>
-            <div class="classify-item-folder">
-              → <UBadge :variant="item.suggestedFolder ? 'solid' : 'outline'" size="sm">
+            <div class="classify-item-meta">
+              <UBadge :variant="item.suggestedFolder ? 'solid' : 'outline'" size="sm">
                 {{ item.suggestedFolder || '未匹配' }}
               </UBadge>
+              <span v-if="item.source === 'ai'" class="source-tag ai-tag">AI</span>
+              <span v-else-if="item.source === 'rule'" class="source-tag rule-tag">规则</span>
+              <span v-if="item.confidence < 70 && item.source !== 'rule'" class="low-conf-tag" :title="item.aiReason">
+                ⚠️ 低置信度 ({{ item.confidence }}%)
+              </span>
             </div>
           </div>
         </div>
@@ -103,10 +121,10 @@
           <UButton
             color="primary"
             :loading="classifyLoading"
-            :disabled="classifyStats.matched === 0"
+            :disabled="classifyStats.ruleMatched + classifyStats.aiMatched === 0"
             @click="applyClassify"
           >
-            确认应用（{{ classifyStats.matched }} 条）
+            确认应用（{{ classifyStats.ruleMatched + classifyStats.aiMatched }} 条）
           </UButton>
         </div>
       </div>
@@ -173,8 +191,9 @@ const showClassifyDialog = ref(false)
 const classifyStep = ref(1)
 const classifyLoading = ref(false)
 const selectedStrategy = ref('function')
+const useAI = ref(true)
 const classifyResults = ref<ClassifyItem[]>([])
-const classifyStats = ref({ total: 0, matched: 0, unmatched: 0 })
+const classifyStats = ref({ total: 0, ruleMatched: 0, aiMatched: 0, unmatched: 0 })
 
 const strategies = [
   { value: 'function', label: '按功能分类', desc: '根据网站功能归类（开发工具、视频娱乐、新闻资讯等）' },
@@ -197,14 +216,16 @@ const runClassify = async () => {
   classifyLoading.value = true
   try {
     const res = await bookmarkApi.post('/BookMarks/toolbox/classify', {
-      strategy: selectedStrategy.value
+      strategy: selectedStrategy.value,
+      useAI: useAI.value
     })
-    const wrapper = (res.data as any[])?.[0]
+    const wrapper = res.data as any
     if (wrapper) {
       classifyResults.value = wrapper.results || []
       classifyStats.value = {
         total: wrapper.total || 0,
-        matched: wrapper.matched || 0,
+        ruleMatched: wrapper.ruleMatched || 0,
+        aiMatched: wrapper.aiMatched || 0,
         unmatched: wrapper.unmatched || 0
       }
       classifyStep.value = 2
@@ -219,48 +240,23 @@ const runClassify = async () => {
 const applyClassify = async () => {
   classifyLoading.value = true
   try {
-    const matched = classifyResults.value
+    const toApply = classifyResults.value
       .filter(r => r.suggestedFolder)
       .map(r => ({
         bookmarkId: r.bookmarkId,
-        folderName: r.suggestedFolder
+        suggestedFolder: r.suggestedFolder,
+        suggestedTitle: r.suggestedTitle
       }))
-    // 收集需要创建的文件夹名
-    const folderNames = [...new Set(matched.map(m => m.folderName))]
-    // 逐个创建文件夹并移动书签
-    let created = 0
-    let moved = 0
-    for (const folderName of folderNames) {
-      const items = matched.filter(m => m.folderName === folderName)
-      try {
-        await bookmarkApi.post('/BookMarks/createFolder', {
-          folderName,
-          parentId: 0
-        })
-        created++
-        // 移动书签到该文件夹需要通过更新 parentId 实现
-        const ids = items.map(i => Number(i.bookmarkId))
-        for (const id of ids) {
-          try {
-            await bookmarkApi.post('/BookMarks/move', {
-              nodeId: id,
-              targetParentId: 0,
-              sortOrder: 0
-            })
-          } catch {}
-        }
-        moved += ids.length
-      } catch (e: any) {
-        // 文件夹可能已存在，继续
-      }
-    }
+    const res = await bookmarkApi.post('/BookMarks/toolbox/applyClassify', toApply)
+    const stats = res.data as any
     lastResult.value = {
       toolName: '智能分类',
       success: true,
       messages: [
-        `✅ 分类完成`,
-        `📁 创建 ${created} 个文件夹`,
-        `📑 归类 ${moved} 条书签`,
+        '✅ 分类完成',
+        `📁 创建 ${stats?.createdFolders || 0} 个文件夹`,
+        `📝 补全 ${stats?.updatedTitles || 0} 个标题`,
+        `📑 归类 ${stats?.movedBookmarks || 0} 条书签`,
         `策略：${strategies.find(s => s.value === selectedStrategy)?.label}`
       ]
     }
@@ -571,6 +567,48 @@ const handleUseTool = async (tool: Tool) => {
   border-radius: 8px;
 }
 
+.classify-stats-detail {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.stat-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.stat-rule {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.stat-ai {
+  background-color: #ede9fe;
+  color: #6b21a8;
+}
+
+.stat-unmatched {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.ai-toggle {
+  padding: 12px 0;
+  margin-bottom: 8px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
 .text-success {
   color: #22c55e;
 }
@@ -621,5 +659,43 @@ const handleUseTool = async (tool: Tool) => {
 
 .classify-item-folder {
   font-size: 13px;
+}
+
+.classify-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ai-title {
+  color: #6b21a8;
+  font-weight: 500;
+}
+
+.source-tag {
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.ai-tag {
+  background-color: #ede9fe;
+  color: #6b21a8;
+}
+
+.rule-tag {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.low-conf-tag {
+  font-size: 11px;
+  color: #dc2626;
+  cursor: help;
+}
+
+.low-confidence {
+  border-left: 3px solid #fca5a5;
 }
 </style>
