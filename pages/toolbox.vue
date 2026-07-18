@@ -72,8 +72,25 @@
         </div>
       </div>
 
-      <!-- 步骤2：预览结果 -->
+      <!-- 步骤2：后台分类进度 -->
       <div v-if="classifyStep === 2" class="classify-step">
+        <div v-if="classifyTask" class="classify-progress-card">
+          <div class="classify-progress-header">
+            <strong>正在后台分类，请勿关闭服务</strong>
+            <span class="text-muted">{{ classifyTask.status === 'QUEUED' ? '任务排队中' : 'AI 分类进行中' }}</span>
+          </div>
+          <div class="classify-progress-track">
+            <div class="classify-progress-bar" :style="{ width: `${classifyProgress}%` }" />
+          </div>
+          <div class="classify-progress-text">
+            <span>总计 {{ classifyTask.total }} 条，规则匹配 {{ classifyTask.ruleMatched }} 条，AI 已完成 {{ classifyTask.aiMatched }} 条</span>
+            <span v-if="classifyTask.totalBatches > 0">AI 批次 {{ classifyTask.completedBatches }} / {{ classifyTask.totalBatches }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 步骤3：预览结果 -->
+      <div v-if="classifyStep === 3" class="classify-step">
         <div class="classify-stats mb-4">
           <span class="text-secondary">
             策略：<strong>{{ strategies.find(s => s.value === selectedStrategy)?.label }}</strong>
@@ -86,6 +103,9 @@
           </div>
         </div>
 
+        <p v-if="classifyResultTotal > classifyResults.length" class="text-muted classify-preview-hint">
+          当前仅预览前 {{ classifyResults.length }} 条结果；确认应用时会使用服务端保存的全部 {{ classifyResultTotal }} 条结果。
+        </p>
         <div class="classify-results">
           <div
             v-for="item in classifyResults"
@@ -179,7 +199,24 @@ interface ClassifyItem {
   url: string
   originalTitle: string
   needsTitle: boolean
+  suggestedTitle?: string
   suggestedFolder: string | null
+  confidence?: number
+  source?: 'rule' | 'ai' | 'unmatched'
+  aiReason?: string
+}
+
+interface ClassifyTask {
+  taskId: string
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+  total: number
+  ruleMatched: number
+  aiMatched: number
+  unmatched: number
+  completedBatches: number
+  totalBatches: number
+  errorMessage?: string
+  resultTotal?: number
 }
 
 const loadingId = ref<number | null>(null)
@@ -193,7 +230,17 @@ const classifyLoading = ref(false)
 const selectedStrategy = ref('function')
 const useAI = ref(true)
 const classifyResults = ref<ClassifyItem[]>([])
+const classifyResultTotal = ref(0)
 const classifyStats = ref({ total: 0, ruleMatched: 0, aiMatched: 0, unmatched: 0 })
+const classifyTask = ref<ClassifyTask | null>(null)
+let classifyPollTimer: ReturnType<typeof setInterval> | null = null
+
+const classifyProgress = computed(() => {
+  if (!classifyTask.value) return 0
+  if (classifyTask.value.status === 'COMPLETED') return 100
+  if (classifyTask.value.totalBatches === 0) return 0
+  return Math.round((classifyTask.value.completedBatches / classifyTask.value.totalBatches) * 100)
+})
 
 const strategies = [
   { value: 'function', label: '按功能分类', desc: '根据网站功能归类（开发工具、视频娱乐、新闻资讯等）' },
@@ -212,42 +259,85 @@ const tools = ref<Tool[]>([
 ])
 
 // 智能分类
+const updateClassifyStats = (task: ClassifyTask) => {
+  classifyStats.value = {
+    total: task.total || 0,
+    ruleMatched: task.ruleMatched || 0,
+    aiMatched: task.aiMatched || 0,
+    unmatched: task.unmatched || 0
+  }
+}
+
+const stopClassifyPolling = () => {
+  if (classifyPollTimer) {
+    clearInterval(classifyPollTimer)
+    classifyPollTimer = null
+  }
+}
+
+const pollClassifyTask = async () => {
+  const taskId = classifyTask.value?.taskId
+  if (!taskId) return
+
+  try {
+    const statusRes = await bookmarkApi.get<ClassifyTask>(`/BookMarks/toolbox/classify/task/${taskId}`)
+    const task = statusRes.data as ClassifyTask
+    classifyTask.value = task
+    updateClassifyStats(task)
+
+    if (task.status === 'FAILED') {
+      stopClassifyPolling()
+      toast.add({ title: task.errorMessage || '智能分类任务失败', color: 'error' })
+      classifyStep.value = 1
+      return
+    }
+
+    if (task.status !== 'COMPLETED') return
+
+    stopClassifyPolling()
+    const resultRes = await bookmarkApi.get<any>(`/BookMarks/toolbox/classify/task/${taskId}/result`, { limit: 200 })
+    const result = resultRes.data as any
+    classifyResults.value = result.results || []
+    classifyResultTotal.value = result.resultTotal || classifyResults.value.length
+    classifyTask.value = result as ClassifyTask
+    updateClassifyStats(result as ClassifyTask)
+    classifyStep.value = 3
+  } catch (error: any) {
+    stopClassifyPolling()
+    toast.add({ title: error.message || '查询分类任务进度失败', color: 'error' })
+    classifyStep.value = 1
+  }
+}
+
 const runClassify = async () => {
   classifyLoading.value = true
   try {
-    const res = await bookmarkApi.post('/BookMarks/toolbox/classify', {
+    const res = await bookmarkApi.post<ClassifyTask>('/BookMarks/toolbox/classify/start', {
       strategy: selectedStrategy.value,
       useAI: useAI.value
     })
-    const wrapper = res.data as any
-    if (wrapper) {
-      classifyResults.value = wrapper.results || []
-      classifyStats.value = {
-        total: wrapper.total || 0,
-        ruleMatched: wrapper.ruleMatched || 0,
-        aiMatched: wrapper.aiMatched || 0,
-        unmatched: wrapper.unmatched || 0
-      }
-      classifyStep.value = 2
-    }
+    classifyTask.value = res.data as ClassifyTask
+    updateClassifyStats(classifyTask.value)
+    classifyResults.value = []
+    classifyResultTotal.value = 0
+    classifyStep.value = 2
+    stopClassifyPolling()
+    classifyPollTimer = setInterval(() => { void pollClassifyTask() }, 2000)
+    await pollClassifyTask()
   } catch (error: any) {
-    toast.add({ title: error.message || '分类预览失败', color: 'error' })
+    toast.add({ title: error.message || '启动分类任务失败', color: 'error' })
   } finally {
     classifyLoading.value = false
   }
 }
 
 const applyClassify = async () => {
+  const taskId = classifyTask.value?.taskId
+  if (!taskId) return
+
   classifyLoading.value = true
   try {
-    const toApply = classifyResults.value
-      .filter(r => r.suggestedFolder)
-      .map(r => ({
-        bookmarkId: r.bookmarkId,
-        suggestedFolder: r.suggestedFolder,
-        suggestedTitle: r.suggestedTitle
-      }))
-    const res = await bookmarkApi.post('/BookMarks/toolbox/applyClassify', toApply)
+    const res = await bookmarkApi.post(`/BookMarks/toolbox/classify/task/${taskId}/apply`, {})
     const stats = res.data as any
     lastResult.value = {
       toolName: '智能分类',
@@ -269,10 +359,15 @@ const applyClassify = async () => {
 }
 
 const closeClassify = () => {
+  stopClassifyPolling()
   showClassifyDialog.value = false
   classifyStep.value = 1
   classifyResults.value = []
+  classifyResultTotal.value = 0
+  classifyTask.value = null
 }
+
+onBeforeUnmount(stopClassifyPolling)
 
 // 工具调用
 const handleUseTool = async (tool: Tool) => {
@@ -558,6 +653,42 @@ const handleUseTool = async (tool: Tool) => {
   display: flex;
   gap: 12px;
   margin-top: 20px;
+}
+
+.classify-progress-card {
+  padding: 20px;
+  border: 1px solid var(--color-border-light);
+  border-radius: 12px;
+  background-color: var(--color-bg-secondary);
+}
+
+.classify-progress-header,
+.classify-progress-text {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.classify-progress-track {
+  height: 8px;
+  overflow: hidden;
+  margin: 16px 0 12px;
+  border-radius: 999px;
+  background: var(--color-border-light);
+}
+
+.classify-progress-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-brand);
+  transition: width 0.3s ease;
+}
+
+.classify-preview-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
 }
 
 .classify-stats {
