@@ -104,11 +104,6 @@ export const bookmarkApi = {
     return useApi().get('/BookMarks/search', { keyword, page, limit })
   },
 
-  // AI 智能分类
-  aiCategorize: (ids: number[]) => {
-    return useApi().post('/BookMarks/toolbox/ai/categorize', { bookmarkIds: ids })
-  },
-
   // 批量删除节点
   deleteBookmarks: (ids: number[]) => {
     return useApi().post('/BookMarks/deleteNodes', ids)

@@ -5,7 +5,7 @@
       <p class="text-muted">管理您的书签资源</p>
     </div>
 
-    <!-- 工具栏：搜索、刷新、AI 分类 -->
+    <!-- 工具栏：搜索、刷新 -->
     <div class="toolbar flex gap-3 mb-4">
       <UInput
         v-model="searchKeyword"
@@ -20,10 +20,6 @@
       <UButton color="primary" :loading="loading" @click="handleRefresh">
         <UIcon name="i-ph-arrows-clockwise" />
         刷新
-      </UButton>
-      <UButton variant="soft" :loading="aiLoading" @click="handleAiCategorize">
-        <UIcon name="i-ph-robot" />
-        AI 分类
       </UButton>
     </div>
 
@@ -68,11 +64,9 @@ interface Bookmark {
 }
 
 const loading = ref(false)
-const aiLoading = ref(false)
 const toast = useToast()
 const searchKeyword = ref('')
 const bookmarks = ref<Bookmark[]>([])
-const selectedIds = ref<Set<number>>(new Set())
 const total = ref(0)
 
 const queryParams = reactive({
@@ -80,30 +74,8 @@ const queryParams = reactive({
   limit: 10
 })
 
-// 切换选中状态，同时同步到行对象的 selected 属性
-const toggleSelect = (row: Bookmark) => {
-  if (selectedIds.value.has(row.id)) {
-    selectedIds.value.delete(row.id)
-    row.selected = false
-  } else {
-    selectedIds.value.add(row.id)
-    row.selected = true
-  }
-}
-
 // 表格列定义（TanStack ColumnDef）
 const columns: ColumnDef<Bookmark>[] = [
-  {
-    id: 'select',
-    header: () => h('span', '选择'),
-    cell: ({ row }) =>
-      h('input', {
-        type: 'checkbox',
-        checked: selectedIds.value.has(row.original.id),
-        onChange: () => toggleSelect(row.original)
-      }),
-    meta: { class: { td: 'w-16' } }
-  },
   {
     accessorKey: 'icon',
     header: '图标',
@@ -186,7 +158,6 @@ const normalizeBookmarks = (records: any[]): Bookmark[] => {
     title: b.title,
     url: b.href || '',
     createdAt: b.addDate ? new Date(b.addDate * 1000).toLocaleString() : undefined,
-    selected: selectedIds.value.has(Number(b.id))
   }))
 }
 
@@ -208,26 +179,6 @@ const handleRefresh = async () => {
     toast.add({ title: error.message || '获取数据失败', color: 'error' })
   } finally {
     loading.value = false
-  }
-}
-
-// AI 分类：对选中行调用接口
-const handleAiCategorize = async () => {
-  const ids = Array.from(selectedIds.value)
-  if (ids.length === 0) {
-    toast.add({ title: '请先选择要分类的书签', color: 'warning' })
-    return
-  }
-  aiLoading.value = true
-  try {
-    await bookmarkApi.aiCategorize(ids)
-    toast.add({ title: 'AI 分类完成', color: 'success' })
-    selectedIds.value.clear()
-    handleRefresh()
-  } catch (error: any) {
-    toast.add({ title: error.message || '分类失败', color: 'error' })
-  } finally {
-    aiLoading.value = false
   }
 }
 

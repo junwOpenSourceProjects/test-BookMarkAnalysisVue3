@@ -94,7 +94,7 @@ test-BookMarkAnalysisVue3/
 | 全量数据检索 | GET | `/BookMarks/search?keyword=&page=&limit=` | 按关键词搜索书签 |
 | 树状文件夹 | GET | `/BookMarks/all` | 获取全部书签（用于构建树） |
 | 导入书签 | POST | `/BookMarks/upload/auto` | 自动识别格式上传书签文件 |
-| AI 分类 | POST | `/BookMarks/toolbox/ai/categorize` | 对选中的书签进行 AI 分类 |
+| AI 重新分类 | POST | `/BookMarks/toolbox/reclassification/start` | 启动可暂停、可恢复的全量目录重建 |
 
 > 注意：`useBookmarkApi.ts` 默认 `baseURL = ''`，所有接口路径均以 `/BookMarks/*` 开头，与上表约定一致。如需代理或跨域，可通过 `NUXT_PUBLIC_BASE_URL` 环境变量覆盖 `baseURL`。
 

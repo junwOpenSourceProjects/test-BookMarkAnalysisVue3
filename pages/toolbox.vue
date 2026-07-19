@@ -24,128 +24,91 @@
       </div>
     </div>
 
-    <!-- 智能分类对话框 -->
+    <!-- 可恢复 AI 重分类对话框 -->
     <div v-if="showClassifyDialog" class="card classify-dialog mb-6">
       <div class="classify-header">
-        <h3 class="font-mid">智能分类</h3>
+        <h3 class="font-mid">AI 全量重新分类</h3>
         <UButton variant="ghost" size="sm" @click="closeClassify">
           <UIcon name="i-ph-x" />
         </UButton>
       </div>
 
-      <!-- 步骤1：选择策略 -->
-      <div v-if="classifyStep === 1" class="classify-step">
-        <p class="text-secondary mb-4">选择分类策略：</p>
-        <div class="strategy-options">
-          <label
-            v-for="s in strategies"
-            :key="s.value"
-            class="strategy-option"
-            :class="{ active: selectedStrategy === s.value }"
-          >
-            <input
-              v-model="selectedStrategy"
-              type="radio"
-              :value="s.value"
-              name="strategy"
-            />
-            <div class="strategy-info">
-              <strong>{{ s.label }}</strong>
-              <span class="text-muted">{{ s.desc }}</span>
-            </div>
-          </label>
-        </div>
-        <div class="ai-toggle">
-          <label class="toggle-label">
-            <input v-model="useAI" type="checkbox" />
-            <span>AI 增强：对规则未匹配的书签调用 AI 补全标题并分类</span>
-          </label>
-        </div>
+      <div v-if="!classifyTask" class="classify-step">
+        <p class="text-secondary mb-3">
+          开始重新分类会立即清空现有文件夹结构；书签链接会保留。
+        </p>
+        <p class="text-muted">
+          系统先按主域名整理 5 条及以上的书签，再用 AI 将零散书签按主题归类。任务进度和结果保存在数据库中，服务重启后可手动继续。
+        </p>
         <div class="classify-actions">
-          <UButton
-            color="primary"
-            :loading="classifyLoading"
-            @click="runClassify"
-          >
-            {{ useAI ? 'AI 智能分类' : '预览分类结果' }}
+          <UButton color="primary" :loading="classifyLoading" @click="startReclassification">
+            开始重新分类
           </UButton>
         </div>
       </div>
 
-      <!-- 步骤2：后台分类进度 -->
-      <div v-if="classifyStep === 2" class="classify-step">
-        <div v-if="classifyTask" class="classify-progress-card">
+      <div v-else class="classify-step">
+        <div class="classify-progress-card">
           <div class="classify-progress-header">
-            <strong>正在后台分类，请勿关闭服务</strong>
-            <span class="text-muted">{{ classifyTask.status === 'QUEUED' ? '任务排队中' : 'AI 分类进行中' }}</span>
+            <strong>{{ reclassificationStatusLabel(classifyTask.status) }}</strong>
+            <span class="text-muted">{{ reclassificationPhaseLabel(classifyTask.phase) }}</span>
           </div>
           <div class="classify-progress-track">
             <div class="classify-progress-bar" :style="{ width: `${classifyProgress}%` }" />
           </div>
           <div class="classify-progress-text">
-            <span>总计 {{ classifyTask.total }} 条，规则匹配 {{ classifyTask.ruleMatched }} 条，AI 已完成 {{ classifyTask.aiMatched }} 条</span>
-            <span v-if="classifyTask.totalBatches > 0">AI 批次 {{ classifyTask.completedBatches }} / {{ classifyTask.totalBatches }}</span>
+            <span>工作单元 {{ classifyTask.completedWorkUnits }} / {{ classifyTask.totalWorkUnits }}</span>
+            <span>书签 {{ classifyTask.totalBookmarks }} 条</span>
           </div>
         </div>
-      </div>
 
-      <!-- 步骤3：预览结果 -->
-      <div v-if="classifyStep === 3" class="classify-step">
-        <div class="classify-stats mb-4">
-          <span class="text-secondary">
-            策略：<strong>{{ strategies.find(s => s.value === selectedStrategy)?.label }}</strong>
-            | 共 {{ classifyStats.total }} 条
-          </span>
+        <div class="classify-stats mt-4">
           <div class="classify-stats-detail">
-            <span class="stat-badge stat-rule">规则匹配 {{ classifyStats.ruleMatched }} 条</span>
-            <span v-if="classifyStats.aiMatched > 0" class="stat-badge stat-ai">AI 补全 {{ classifyStats.aiMatched }} 条</span>
-            <span v-if="classifyStats.unmatched > 0" class="stat-badge stat-unmatched">未匹配 {{ classifyStats.unmatched }} 条</span>
+            <span class="stat-badge stat-rule">大域名组 {{ classifyTask.largeDomainGroups }} 个</span>
+            <span class="stat-badge stat-ai">零散书签 {{ classifyTask.smallPoolBookmarks }} 条</span>
+            <span v-if="classifyTask.recoveryCount > 0" class="stat-badge stat-unmatched">已恢复 {{ classifyTask.recoveryCount }} 次</span>
           </div>
+          <p v-if="classifyTask.errorMessage" class="task-error">{{ classifyTask.errorMessage }}</p>
         </div>
 
-        <p v-if="classifyResultTotal > classifyResults.length" class="text-muted classify-preview-hint">
-          当前仅预览前 {{ classifyResults.length }} 条结果；确认应用时会使用服务端保存的全部 {{ classifyResultTotal }} 条结果。
-        </p>
-        <div class="classify-results">
-          <div
-            v-for="item in classifyResults"
-            :key="item.bookmarkId"
-            class="classify-item"
-            :class="{ 'low-confidence': item.confidence < 70 && item.source !== 'rule' }"
-          >
-            <div class="classify-item-url text-muted">{{ item.url }}</div>
-            <div class="classify-item-title">
-              <span v-if="item.source === 'ai' && item.suggestedTitle" class="ai-title">
-                {{ item.suggestedTitle }}
-              </span>
-              <span v-else>
-                <span v-if="item.needsTitle" class="needs-title-badge">待补全</span>
-                {{ item.originalTitle || '(无标题)' }}
-              </span>
-            </div>
-            <div class="classify-item-meta">
-              <UBadge :variant="item.suggestedFolder ? 'solid' : 'outline'" size="sm">
-                {{ item.suggestedFolder || '未匹配' }}
-              </UBadge>
-              <span v-if="item.source === 'ai'" class="source-tag ai-tag">AI</span>
-              <span v-else-if="item.source === 'rule'" class="source-tag rule-tag">规则</span>
-              <span v-if="item.confidence < 70 && item.source !== 'rule'" class="low-conf-tag" :title="item.aiReason">
-                ⚠️ 低置信度 ({{ item.confidence }}%)
-              </span>
-            </div>
-          </div>
+        <div v-if="classifyTask.status === 'COMPLETED'" class="classify-outcome">
+          <strong class="text-success">已自动应用分类结果</strong>
+          <span>已创建 {{ classifyTask.createdFolders }} 个文件夹</span>
+          <span>已移动 {{ classifyTask.movedBookmarks }} 条书签</span>
+          <span>已更新 {{ classifyTask.updatedTitles }} 个标题</span>
         </div>
 
         <div class="classify-actions">
-          <UButton variant="soft" @click="classifyStep = 1">返回选择</UButton>
           <UButton
+            v-if="classifyTask.status === 'RUNNING'"
+            color="warning"
+            variant="soft"
+            :loading="classifyLoading"
+            @click="pauseReclassification"
+          >
+            暂停
+          </UButton>
+          <UButton
+            v-if="classifyTask.status === 'PAUSED' || classifyTask.status === 'RECOVERABLE'"
             color="primary"
             :loading="classifyLoading"
-            :disabled="classifyStats.ruleMatched + classifyStats.aiMatched === 0"
-            @click="applyClassify"
+            @click="resumeReclassification(classifyTask.taskId)"
           >
-            确认应用（{{ classifyStats.ruleMatched + classifyStats.aiMatched }} 条）
+            继续
           </UButton>
+          <UButton variant="soft" @click="closeClassify">关闭</UButton>
+        </div>
+      </div>
+
+      <div v-if="recoverableTasks.length && !classifyTask" class="recoverable-tasks">
+        <strong>可继续的历史任务</strong>
+        <div v-for="task in recoverableTasks" :key="task.taskId" class="recoverable-task">
+          <div>
+            <span>{{ reclassificationStatusLabel(task.status) }}</span>
+            <span class="text-muted"> · {{ reclassificationPhaseLabel(task.phase) }}</span>
+            <span class="text-muted"> · {{ task.completedWorkUnits }} / {{ task.totalWorkUnits }}</span>
+          </div>
+          <UButton size="xs" :loading="classifyLoading" @click="resumeReclassification(task.taskId)">继续</UButton>
         </div>
       </div>
     </div>
@@ -194,79 +157,59 @@ interface Tool {
   loadingText?: string
 }
 
-interface ClassifyItem {
-  bookmarkId: string
-  url: string
-  originalTitle: string
-  needsTitle: boolean
-  suggestedTitle?: string
-  suggestedFolder: string | null
-  confidence?: number
-  source?: 'rule' | 'ai' | 'unmatched'
-  aiReason?: string
-}
-
-interface ClassifyTask {
+interface ReclassificationTask {
   taskId: string
-  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
-  total: number
-  ruleMatched: number
-  aiMatched: number
-  unmatched: number
-  completedBatches: number
-  totalBatches: number
+  status: 'QUEUED' | 'RUNNING' | 'PAUSED' | 'RECOVERABLE' | 'COMPLETED' | 'FAILED'
+  phase: string
+  totalBookmarks: number
+  totalWorkUnits: number
+  completedWorkUnits: number
+  largeDomainGroups: number
+  smallPoolBookmarks: number
+  createdFolders: number
+  movedBookmarks: number
+  updatedTitles: number
+  recoveryCount: number
+  treeClearedAt?: string
   errorMessage?: string
-  resultTotal?: number
 }
 
 const loadingId = ref<number | null>(null)
 const lastResult = ref<ToolResult | null>(null)
 const toast = useToast()
 
-// 智能分类状态
+// 可恢复 AI 重分类状态
 const showClassifyDialog = ref(false)
-const classifyStep = ref(1)
 const classifyLoading = ref(false)
-const selectedStrategy = ref('function')
-const useAI = ref(true)
-const classifyResults = ref<ClassifyItem[]>([])
-const classifyResultTotal = ref(0)
-const classifyStats = ref({ total: 0, ruleMatched: 0, aiMatched: 0, unmatched: 0 })
-const classifyTask = ref<ClassifyTask | null>(null)
+const classifyTask = ref<ReclassificationTask | null>(null)
+const recoverableTasks = ref<ReclassificationTask[]>([])
 let classifyPollTimer: ReturnType<typeof setInterval> | null = null
 
 const classifyProgress = computed(() => {
-  if (!classifyTask.value) return 0
-  if (classifyTask.value.status === 'COMPLETED') return 100
-  if (classifyTask.value.totalBatches === 0) return 0
-  return Math.round((classifyTask.value.completedBatches / classifyTask.value.totalBatches) * 100)
+  const task = classifyTask.value
+  if (!task) return 0
+  if (task.status === 'COMPLETED') return 100
+  if (task.totalWorkUnits === 0) return 0
+  return Math.round((task.completedWorkUnits / task.totalWorkUnits) * 100)
 })
 
-const strategies = [
-  { value: 'function', label: '按功能分类', desc: '根据网站功能归类（开发工具、视频娱乐、新闻资讯等）' },
-  { value: 'domain', label: '按域名分类', desc: '按域名精确分组（github.com、zhihu.com 等）' },
-  { value: 'region', label: '按国内外分类', desc: '根据域名后缀和语言分为国内/国外' }
-]
+const reclassificationStatusLabel = (status: ReclassificationTask['status']) => ({
+  QUEUED: '任务准备中',
+  RUNNING: '正在重新分类',
+  PAUSED: '任务已暂停',
+  RECOVERABLE: '任务等待恢复',
+  COMPLETED: '重新分类完成',
+  FAILED: '任务失败'
+})[status] || status
 
-const tools = ref<Tool[]>([
-  { id: 7, name: '智能分类', description: 'AI + 规则引擎自动分类书签', icon: 'i-ph-brain' },
-  { id: 1, name: '批量标签管理', description: '批量添加或移除书签标签', icon: 'i-ph-tag' },
-  { id: 2, name: '失效链接检测', description: '检测书签中的失效链接', icon: 'i-ph-link-break', loadingText: '正在启动扫描…' },
-  { id: 3, name: '数据导出', description: '导出书签数据为多种格式', icon: 'i-ph-export' },
-  { id: 4, name: '重复检测', description: '查找重复的书签链接', icon: 'i-ph-copy', loadingText: '正在扫描重复…' },
-  { id: 5, name: '标签合并', description: '合并相似的标签', icon: 'i-ph-git-merge' },
-  { id: 6, name: '数据清理', description: '清理无效书签数据', icon: 'i-ph-broom', loadingText: '正在清理…' }
-])
-
-// 智能分类
-const updateClassifyStats = (task: ClassifyTask) => {
-  classifyStats.value = {
-    total: task.total || 0,
-    ruleMatched: task.ruleMatched || 0,
-    aiMatched: task.aiMatched || 0,
-    unmatched: task.unmatched || 0
-  }
-}
+const reclassificationPhaseLabel = (phase: string) => ({
+  PREPARING: '正在生成快照并清空旧目录',
+  LARGE_DOMAINS: '正在处理大域名组',
+  SMALL_ANALYSIS: '正在分析零散书签',
+  SMALL_CLUSTER_DRAFTS: '正在聚合零散主题',
+  SMALL_CANONICALIZATION: '正在规范目录名称',
+  APPLYING: '正在应用分类结果'
+})[phase] || phase
 
 const stopClassifyPolling = () => {
   if (classifyPollTimer) {
@@ -275,84 +218,82 @@ const stopClassifyPolling = () => {
   }
 }
 
+const shouldPollTask = (task?: ReclassificationTask | null) =>
+  task?.status === 'QUEUED' || task?.status === 'RUNNING'
+
+const loadRecoverableTasks = async () => {
+  try {
+    const res = await bookmarkApi.get<ReclassificationTask[]>('/BookMarks/toolbox/reclassification/recoverable')
+    recoverableTasks.value = res.data || []
+  } catch (error) {
+    console.warn('加载可恢复分类任务失败', error)
+  }
+}
+
 const pollClassifyTask = async () => {
   const taskId = classifyTask.value?.taskId
   if (!taskId) return
 
   try {
-    const statusRes = await bookmarkApi.get<ClassifyTask>(`/BookMarks/toolbox/classify/task/${taskId}`)
-    const task = statusRes.data as ClassifyTask
-    classifyTask.value = task
-    updateClassifyStats(task)
-
-    if (task.status === 'FAILED') {
+    const res = await bookmarkApi.get<ReclassificationTask>(`/BookMarks/toolbox/reclassification/task/${taskId}`)
+    classifyTask.value = res.data
+    if (!shouldPollTask(classifyTask.value)) {
       stopClassifyPolling()
-      toast.add({ title: task.errorMessage || '智能分类任务失败', color: 'error' })
-      classifyStep.value = 1
-      return
+      await loadRecoverableTasks()
     }
-
-    if (task.status !== 'COMPLETED') return
-
-    stopClassifyPolling()
-    const resultRes = await bookmarkApi.get<any>(`/BookMarks/toolbox/classify/task/${taskId}/result`, { limit: 200 })
-    const result = resultRes.data as any
-    classifyResults.value = result.results || []
-    classifyResultTotal.value = result.resultTotal || classifyResults.value.length
-    classifyTask.value = result as ClassifyTask
-    updateClassifyStats(result as ClassifyTask)
-    classifyStep.value = 3
   } catch (error: any) {
     stopClassifyPolling()
-    toast.add({ title: error.message || '查询分类任务进度失败', color: 'error' })
-    classifyStep.value = 1
+    toast.add({ title: error.message || '查询重分类任务进度失败', color: 'error' })
   }
 }
 
-const runClassify = async () => {
+const startPolling = () => {
+  stopClassifyPolling()
+  if (shouldPollTask(classifyTask.value)) {
+    classifyPollTimer = setInterval(() => { void pollClassifyTask() }, 2000)
+  }
+}
+
+const startReclassification = async () => {
   classifyLoading.value = true
   try {
-    const res = await bookmarkApi.post<ClassifyTask>('/BookMarks/toolbox/classify/start', {
-      strategy: selectedStrategy.value,
-      useAI: useAI.value
-    })
-    classifyTask.value = res.data as ClassifyTask
-    updateClassifyStats(classifyTask.value)
-    classifyResults.value = []
-    classifyResultTotal.value = 0
-    classifyStep.value = 2
-    stopClassifyPolling()
-    classifyPollTimer = setInterval(() => { void pollClassifyTask() }, 2000)
+    const res = await bookmarkApi.post<ReclassificationTask>('/BookMarks/toolbox/reclassification/start', {})
+    classifyTask.value = res.data
+    startPolling()
     await pollClassifyTask()
   } catch (error: any) {
-    toast.add({ title: error.message || '启动分类任务失败', color: 'error' })
+    toast.add({ title: error.message || '启动重新分类失败', color: 'error' })
   } finally {
     classifyLoading.value = false
   }
 }
 
-const applyClassify = async () => {
+const pauseReclassification = async () => {
   const taskId = classifyTask.value?.taskId
   if (!taskId) return
-
   classifyLoading.value = true
   try {
-    const res = await bookmarkApi.post(`/BookMarks/toolbox/classify/task/${taskId}/apply`, {})
-    const stats = res.data as any
-    lastResult.value = {
-      toolName: '智能分类',
-      success: true,
-      messages: [
-        '✅ 分类完成',
-        `📁 创建 ${stats?.createdFolders || 0} 个文件夹`,
-        `📝 补全 ${stats?.updatedTitles || 0} 个标题`,
-        `📑 归类 ${stats?.movedBookmarks || 0} 条书签`,
-        `策略：${strategies.find(s => s.value === selectedStrategy)?.label}`
-      ]
-    }
-    closeClassify()
+    const res = await bookmarkApi.post<ReclassificationTask>(`/BookMarks/toolbox/reclassification/task/${taskId}/pause`, {})
+    classifyTask.value = res.data
+    stopClassifyPolling()
+    await loadRecoverableTasks()
   } catch (error: any) {
-    toast.add({ title: error.message || '应用分类失败', color: 'error' })
+    toast.add({ title: error.message || '暂停重分类任务失败', color: 'error' })
+  } finally {
+    classifyLoading.value = false
+  }
+}
+
+const resumeReclassification = async (taskId: string) => {
+  classifyLoading.value = true
+  try {
+    const res = await bookmarkApi.post<ReclassificationTask>(`/BookMarks/toolbox/reclassification/task/${taskId}/resume`, {})
+    classifyTask.value = res.data
+    startPolling()
+    await pollClassifyTask()
+    await loadRecoverableTasks()
+  } catch (error: any) {
+    toast.add({ title: error.message || '继续重分类任务失败', color: 'error' })
   } finally {
     classifyLoading.value = false
   }
@@ -361,20 +302,18 @@ const applyClassify = async () => {
 const closeClassify = () => {
   stopClassifyPolling()
   showClassifyDialog.value = false
-  classifyStep.value = 1
-  classifyResults.value = []
-  classifyResultTotal.value = 0
   classifyTask.value = null
 }
 
+onMounted(() => { void loadRecoverableTasks() })
 onBeforeUnmount(stopClassifyPolling)
 
 // 工具调用
 const handleUseTool = async (tool: Tool) => {
-  // 智能分类：打开对话框
+  // AI 重新分类：打开数据库持久化的任务控制面板
   if (tool.id === 7) {
     showClassifyDialog.value = true
-    classifyStep.value = 1
+    void loadRecoverableTasks()
     return
   }
 
@@ -829,4 +768,43 @@ const handleUseTool = async (tool: Tool) => {
 .low-confidence {
   border-left: 3px solid #fca5a5;
 }
+
+.task-error {
+  margin: 12px 0 0;
+  color: #b45309;
+  font-size: 13px;
+}
+
+.classify-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 10px;
+  background-color: #f0fdf4;
+  color: #166534;
+  font-size: 14px;
+}
+
+.recoverable-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-border-light);
+  font-size: 14px;
+}
+
+.recoverable-task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background-color: var(--color-bg-secondary);
+}
+
 </style>
