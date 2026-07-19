@@ -185,6 +185,16 @@ const classifyTask = ref<ReclassificationTask | null>(null)
 const recoverableTasks = ref<ReclassificationTask[]>([])
 let classifyPollTimer: ReturnType<typeof setInterval> | null = null
 
+const tools = ref<Tool[]>([
+  { id: 7, name: '重新分类', description: '可暂停、可恢复的全量目录重建', icon: 'i-ph-brain' },
+  { id: 1, name: '批量标签管理', description: '批量添加或移除书签标签', icon: 'i-ph-tag' },
+  { id: 2, name: '失效链接检测', description: '检测书签中的失效链接', icon: 'i-ph-link-break', loadingText: '正在启动扫描…' },
+  { id: 3, name: '数据导出', description: '导出书签数据为多种格式', icon: 'i-ph-export' },
+  { id: 4, name: '重复检测', description: '查找重复的书签链接', icon: 'i-ph-copy', loadingText: '正在扫描重复…' },
+  { id: 5, name: '标签合并', description: '合并相似的标签', icon: 'i-ph-git-merge' },
+  { id: 6, name: '数据清理', description: '清理无效书签数据', icon: 'i-ph-broom', loadingText: '正在清理…' }
+])
+
 const classifyProgress = computed(() => {
   const task = classifyTask.value
   if (!task) return 0
