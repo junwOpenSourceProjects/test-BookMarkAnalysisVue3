@@ -2,31 +2,35 @@
   <div class="tree-page">
     <div class="page-header">
       <h1 class="font-display">树状文件夹浏览</h1>
-      <p class="text-muted">以树形结构展示书签文件夹</p>
+      <p class="text-muted">目录优先展示；未分类书签会收纳在独立节点中</p>
     </div>
 
     <div class="card tree-card">
-      <!-- 展开/收起工具栏 -->
       <div class="tree-toolbar flex gap-2 mb-4">
-        <UButton variant="soft" size="sm" @click="handleExpandAll">
+        <UButton variant="soft" size="sm" :loading="loading" @click="handleRefresh">
+          <UIcon name="i-ph-arrow-clockwise" />
+          刷新树状结构
+        </UButton>
+        <UButton variant="soft" size="sm" :disabled="loading" @click="handleExpandAll">
           <UIcon name="i-ph-caret-down" />
           展开全部
         </UButton>
-        <UButton variant="soft" size="sm" @click="handleCollapseAll">
+        <UButton variant="soft" size="sm" :disabled="loading" @click="handleCollapseAll">
           <UIcon name="i-ph-caret-right" />
           收起全部
         </UButton>
+        <span v-if="unclassifiedCount > 0" class="tree-toolbar-summary text-muted">
+          {{ unclassifiedCount }} 条未分类书签已收纳到独立节点
+        </span>
       </div>
 
-      <!-- 加载与空状态 -->
-      <div v-if="loading" class="tree-status">
+      <div v-if="loading && treeData.length === 0" class="tree-status">
         <UIcon name="i-ph-spinner" class="animate-spin" />
       </div>
       <div v-else-if="treeData.length === 0" class="tree-status text-muted">
         暂无文件夹数据
       </div>
 
-      <!-- 树组件：使用 items 与 v-model:expanded -->
       <UTree
         v-else
         :items="treeData"
@@ -35,12 +39,13 @@
       >
         <template #item="{ item, expanded }">
           <div class="tree-node">
-            <UIcon :name="expanded ? 'i-ph-folder-open' : 'i-ph-folder'" />
+            <UIcon :name="getNodeIcon(item, expanded)" />
             <span class="tree-node-label">{{ item.label }}</span>
-            <UBadge v-if="item.count" variant="subtle" size="sm">
+            <UBadge v-if="item.count !== undefined" variant="subtle" size="sm">
               {{ item.count }}
             </UBadge>
             <UButton
+              v-if="!item.isVirtual"
               variant="ghost"
               size="sm"
               color="error"
@@ -59,94 +64,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+import {
+  buildBookmarkTree,
+  type BackendBookmarkNode,
+  type BookmarkTreeItem
+} from '~/utils/bookmarkTree'
 
-// 使用默认布局
 definePageMeta({
   layout: 'default'
 })
-
-interface BackendNode {
-  id: number | string
-  title?: string
-  type?: 'h3' | 'a' | string
-  href?: string
-  parentId?: number | string | null
-  sortOrder?: number
-}
-
-interface TreeItem {
-  id: string
-  label: string
-  icon?: string
-  count?: number
-  children?: TreeItem[]
-}
 
 const loading = ref(false)
 const deletingId = ref<string | null>(null)
 const toast = useToast()
 const expandedIds = ref<string[]>([])
-const treeData = ref<TreeItem[]>([])
+const treeData = ref<BookmarkTreeItem[]>([])
+const unclassifiedCount = ref(0)
 
-// 将后端返回的扁平书签列表按 parentId 构建为树形结构
-const buildTree = (nodes: BackendNode[]): TreeItem[] => {
-  const map = new Map<string, TreeItem>()
-  const roots: TreeItem[] = []
-
-  // 预处理：按 sortOrder 排序，保证展示顺序稳定
-  const sorted = [...nodes].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-
-  // 第一遍：创建所有节点映射
-  for (const node of sorted) {
-    const isFolder = node.type === 'h3' || !node.href
-    const id = String(node.id)
-    map.set(id, {
-      id,
-      label: node.title || '未命名',
-      icon: isFolder ? 'i-ph-folder' : 'i-ph-link',
-      children: isFolder ? [] : undefined
-    })
-  }
-
-  // 第二遍：挂载到父节点或作为根节点
-  for (const node of sorted) {
-    const id = String(node.id)
-    const item = map.get(id)
-    if (!item) continue
-
-    const parentId = node.parentId ?? null
-    if (parentId !== null && parentId !== undefined && String(parentId) !== '0') {
-      const parent = map.get(String(parentId))
-      if (parent && parent.children) {
-        parent.children.push(item)
-      } else {
-        // 父节点不存在时降级为根节点
-        roots.push(item)
-      }
-    } else {
-      roots.push(item)
-    }
-  }
-
-  // 为文件夹计算直接子节点数量，并过滤空 children 数组
-  const walk = (items: TreeItem[]) => {
-    for (const item of items) {
-      if (item.children?.length) {
-        item.count = item.children.length
-        walk(item.children)
-      } else {
-        item.children = undefined
-      }
-    }
-  }
-  walk(roots)
-
-  return roots
-}
-
-// 收集所有节点 ID，用于展开全部
-const collectIds = (nodes: TreeItem[]): string[] => {
+const collectIds = (nodes: BookmarkTreeItem[]): string[] => {
   const ids: string[] = []
   for (const node of nodes) {
     ids.push(node.id)
@@ -157,6 +93,28 @@ const collectIds = (nodes: TreeItem[]): string[] => {
   return ids
 }
 
+const collectDefaultExpandedIds = (
+  nodes: BookmarkTreeItem[],
+  depth = 0,
+  maxDepth = 2
+): string[] => {
+  const ids: string[] = []
+  for (const node of nodes) {
+    if (!node.isVirtual && node.isFolder && depth < maxDepth) {
+      ids.push(node.id)
+      if (node.children?.length) {
+        ids.push(...collectDefaultExpandedIds(node.children, depth + 1, maxDepth))
+      }
+    }
+  }
+  return ids
+}
+
+const getNodeIcon = (item: BookmarkTreeItem, expanded: boolean) => {
+  if (!item.isFolder) return 'i-ph-link'
+  return expanded ? 'i-ph-folder-open' : 'i-ph-folder'
+}
+
 const handleExpandAll = () => {
   expandedIds.value = collectIds(treeData.value)
 }
@@ -165,13 +123,43 @@ const handleCollapseAll = () => {
   expandedIds.value = []
 }
 
-const handleNodeClick = (node: TreeItem) => {
-  // 点击节点时，如果有 href 则在新标签页打开
-  // 文件夹节点由 UTree 自动处理展开/收起
+const handleNodeClick = (_node: BookmarkTreeItem) => {
+  // 目录节点由 UTree 自动处理展开/收起；链接节点暂不在此页面跳转。
 }
 
-// 删除节点
-const handleDeleteNode = async (node: TreeItem) => {
+const collectAllIds = (nodes: BookmarkTreeItem[]): number[] => {
+  const ids: number[] = []
+  for (const node of nodes) {
+    if (!node.isVirtual) ids.push(Number(node.id))
+    if (node.children?.length) {
+      ids.push(...collectAllIds(node.children))
+    }
+  }
+  return ids
+}
+
+const loadTreeData = async () => {
+  const res = await bookmarkApi.getTreeData()
+  const raw = (res.data || []) as BackendBookmarkNode[]
+  const tree = buildBookmarkTree(raw)
+  treeData.value = tree.items
+  unclassifiedCount.value = tree.unclassifiedCount
+  expandedIds.value = collectDefaultExpandedIds(tree.items)
+}
+
+const handleRefresh = async () => {
+  loading.value = true
+  try {
+    await loadTreeData()
+    toast.add({ title: '树状结构已刷新', color: 'success' })
+  } catch (error: any) {
+    toast.add({ title: error.message || '刷新树状数据失败', color: 'error' })
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleDeleteNode = async (node: BookmarkTreeItem) => {
   const confirmed = await useConfirm().confirm(
     `确定要删除「${node.label}」${node.children ? '及其所有子节点' : ''}吗？此操作不可恢复。`
   )
@@ -179,11 +167,9 @@ const handleDeleteNode = async (node: TreeItem) => {
 
   deletingId.value = node.id
   try {
-    // 收集该节点及其所有子孙节点的 ID
     const idsToDelete = collectAllIds([node])
-    await bookmarkApi.deleteBookmarks(idsToDelete.map(Number))
+    await bookmarkApi.deleteBookmarks(idsToDelete)
     toast.add({ title: `已删除「${node.label}」`, color: 'success' })
-    // 刷新树数据
     await loadTreeData()
   } catch (error: any) {
     toast.add({ title: error.message || '删除失败', color: 'error' })
@@ -192,31 +178,10 @@ const handleDeleteNode = async (node: TreeItem) => {
   }
 }
 
-// 收集节点及其所有子孙节点的 ID
-const collectAllIds = (nodes: TreeItem[]): number[] => {
-  const ids: number[] = []
-  for (const node of nodes) {
-    ids.push(Number(node.id))
-    if (node.children?.length) {
-      ids.push(...collectAllIds(node.children))
-    }
-  }
-  return ids
-}
-
-// 加载树数据
-const loadTreeData = async () => {
-  const res = await bookmarkApi.getTreeData()
-  const raw = (res.data || []) as BackendNode[]
-  treeData.value = buildTree(raw)
-}
-
 onMounted(async () => {
   loading.value = true
   try {
     await loadTreeData()
-    // 默认展开前两层
-    expandedIds.value = collectIds(treeData.value).slice(0, 20)
   } catch (error: any) {
     toast.add({ title: error.message || '获取树状数据失败', color: 'error' })
   } finally {
@@ -249,7 +214,13 @@ onMounted(async () => {
 }
 
 .tree-toolbar {
+  align-items: center;
   flex-wrap: wrap;
+}
+
+.tree-toolbar-summary {
+  font-size: 13px;
+  margin-left: 4px;
 }
 
 .tree-status {
